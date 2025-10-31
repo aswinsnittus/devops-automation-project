@@ -1,5 +1,6 @@
 ﻿name: Build & Push Docker Image
 
+# run only on pushes to main - does not run terraform or deploy
 on:
   push:
     branches: [ "main" ]
