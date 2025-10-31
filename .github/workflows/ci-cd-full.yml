@@ -1,31 +1,29 @@
-﻿# ensure folder exists
-New-Item -ItemType Directory -Force -Path .github\workflows | Out-Null
-
-$yaml = @'
-name: Full CI/CD (Build → Plan → Apply → Deploy)
+﻿name: Full CI/CD (build → plan → apply → deploy)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
-  group: "ci-cd-${{ github.ref }}"
+  group: "ci-cd-full-${{ github.ref }}"
   cancel-in-progress: true
 
 env:
-  TF_WORKING_DIR: terraform
   AWS_REGION: us-east-1
+  TF_WORKING_DIR: terraform
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: 1️⃣ Build & Push Docker Image
+  full-pipeline:
+    name: Full pipeline — Build, Terraform, Deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -46,105 +44,65 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/devops-ui:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/devops-ui:${{ github.sha }}
 
-  plan:
-    name: 2️⃣ Terraform Plan
-    runs-on: ubuntu-latest
-    needs: build
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
-    steps:
-      - uses: actions/checkout@v4
+      - name: Docker logout
+        run: docker logout
 
-      - name: Setup Terraform CLI
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.8
 
-      - name: Configure AWS
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform Init
-        run: terraform init -reconfigure \
-          -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
-          -backend-config="dynamodb_table=${{ secrets.TF_DYNAMODB_TABLE }}" \
-          -backend-config="region=${{ env.AWS_REGION }}"
+      - name: Terraform init (S3 backend)
+        working-directory: ./terraform
+        run: |
+          terraform init -reconfigure \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="dynamodb_table=${{ secrets.TF_DYNAMODB_TABLE }}" \
+            -backend-config="region=${{ env.AWS_REGION }}"
 
-      - name: Terraform Validate
+      - name: Terraform fmt (check)
+        working-directory: ./terraform
+        run: terraform fmt -check
+
+      - name: Terraform validate
+        working-directory: ./terraform
         run: terraform validate
 
-      - name: Terraform Plan
-        run: terraform plan -out=tfplan
+      - name: Terraform plan
+        working-directory: ./terraform
+        run: terraform plan -out=tfplan -input=false
 
-      - name: Upload tfplan
-        uses: actions/upload-artifact@v4
-        with:
-          name: tfplan
-          path: ${{ env.TF_WORKING_DIR }}/tfplan
-
-  apply:
-    name: 3️⃣ Terraform Apply
-    runs-on: ubuntu-latest
-    needs: plan
-    defaults:
-      run:
-        working-directory: ${{ env.TF_WORKING_DIR }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Terraform CLI
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.9.8
-
-      - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Download tfplan
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: ${{ env.TF_WORKING_DIR }}
-
-      - name: Terraform Apply
+      - name: Terraform apply
+        working-directory: ./terraform
         run: terraform apply -auto-approve tfplan
 
-      - name: Output Public IP
-        id: output
+      - name: Terraform output public_ip
+        id: tfout
+        working-directory: ./terraform
         run: echo "public_ip=$(terraform output -raw public_ip)" >> $GITHUB_OUTPUT
 
-  deploy:
-    name: 4️⃣ Deploy to EC2
-    runs-on: ubuntu-latest
-    needs: apply
-    steps:
-      - name: Prepare SSH key
+      - name: Write deploy private key
         run: |
           echo "${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}" > private_key.pem
           chmod 600 private_key.pem
 
-      - name: Wait for SSH
+      - name: Wait for SSH on instance
         run: |
           for i in {1..15}; do
-            nc -zv ${{ needs.apply.outputs.public_ip }} 22 && break || sleep 3
+            nc -zv ${{ steps.tfout.outputs.public_ip }} 22 && break || sleep 3
           done
 
-      - name: SSH: pull image & run container
+      - name: SSH deploy: pull image & run
         run: |
-          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@${{ needs.apply.outputs.public_ip }} << 'EOF'
+          ssh -o StrictHostKeyChecking=no -i private_key.pem ubuntu@${{ steps.tfout.outputs.public_ip }} << 'EOF'
             sudo docker rm -f devops-ui 2>/dev/null || true
             sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/devops-ui:latest
             sudo docker run -d --name devops-ui --restart unless-stopped -p 80:8080 ${{ secrets.DOCKERHUB_USERNAME }}/devops-ui:latest
           EOF
-'@
-
-$yaml | Out-File -FilePath .github\workflows\ci-cd-4stage.yml -Encoding utf8 -Force
-Write-Host "Created .github\workflows\ci-cd-4stage.yml"
