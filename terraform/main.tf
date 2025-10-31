@@ -1,4 +1,4 @@
-﻿provider "aws" {
+provider "aws" {
   region = var.aws_region
 }
 
@@ -40,7 +40,7 @@ resource "aws_instance" "web" {
   key_name                    = var.ssh_key_name
   vpc_security_group_ids      = [aws_security_group.web_sg.id]
   associate_public_ip_address = true
-  tags = { Name = "devops-web" }
+  tags                        = { Name = "devops-web" }
 }
 
 output "public_ip" { value = aws_instance.web.public_ip }
