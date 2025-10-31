@@ -30,3 +30,5 @@ docker-compose.override.yml
 # Others
 dist/
 build/
+
+!terraform/.terraform.lock.hcl
