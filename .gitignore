@@ -1,15 +1,32 @@
-﻿node_modules
+﻿# Node
+node_modules/
 npm-debug.log
-.env
-# Terraform local files and providers
-terraform/.terraform/
-.terraform/
+yarn-debug.log
+yarn-error.log
 
-# Node / OS / secrets
-app/node_modules/
-*.pem
-*.key
-.aws/
-*.log
+# OS
 .DS_Store
 Thumbs.db
+
+# Secrets / keys
+*.pem
+.env
+.env.local
+
+# Terraform local files (do not commit tfstate or local provider caches)
+terraform/terraform.tfstate
+terraform/terraform.tfstate.*
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+
+# Docker
+docker-compose.override.yml
+.docker/
+
+# Editor
+.vscode/
+.idea/
+
+# Others
+dist/
+build/
