@@ -1,9 +1,4 @@
-﻿# ensure workflows folder exists
-New-Item -ItemType Directory -Force -Path .github\workflows | Out-Null
-
-# write the workflow file (4-job pipeline)
-$yaml = @'
-name: Full CI/CD Pipeline (build → plan → apply → deploy)
+﻿name: Full CI/CD Pipeline (build → plan → apply → deploy)
 
 on:
   push:
@@ -157,9 +152,3 @@ jobs:
             sudo docker pull ${{ secrets.DOCKERHUB_USERNAME }}/devops-ui:latest
             sudo docker run -d --name devops-ui --restart unless-stopped -p 80:8080 ${{ secrets.DOCKERHUB_USERNAME }}/devops-ui:latest
           EOF
-'@
-
-# write as UTF8
-$yaml | Out-File -FilePath .github\workflows\ci-cd.yml -Encoding utf8 -Force
-
-Write-Host "Created .github\workflows\ci-cd.yml"
