@@ -1,0 +1,15 @@
+﻿node_modules
+npm-debug.log
+.env
+# Terraform local files and providers
+terraform/.terraform/
+.terraform/
+
+# Node / OS / secrets
+app/node_modules/
+*.pem
+*.key
+.aws/
+*.log
+.DS_Store
+Thumbs.db
